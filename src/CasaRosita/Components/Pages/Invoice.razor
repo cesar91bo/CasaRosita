@@ -1,0 +1,69 @@
+@page "/factura/{Id:long}"
+@attribute [Authorize]
+@inherits StorePage
+@inject FiscalService Fiscal
+@inject FiscalOptions Options
+@inject IJSRuntime JS
+<PageTitle>Factura C · Casa Rosita</PageTitle>
+<div class="no-print"><p class="eyebrow">FACTURACIÓN ELECTRÓNICA</p><h1>Factura C · Venta #@Id</h1>
+<a class="btn btn-light" href="/ventas">Volver a ventas</a>
+<Feedback Error="@Error" Notice="@Notice"/>
+@if(sale is not null){
+    <section class="panel"><p>Venta: <strong>@sale.Total.ToString("C")</strong> · Estado fiscal: <strong>@sale.FiscalStatus</strong></p>
+    @if(!string.IsNullOrEmpty(sale.FiscalError)){<p class="alert alert-warning">@sale.FiscalError</p>}
+    @if(sale.FiscalStatus == FiscalService.Pending){
+        <p>La solicitud quedó guardada. Recuperar consulta ARCA y, si confirma que no existe, vuelve a enviar el mismo número y los mismos datos. No emitas esta venta desde otro canal.</p>
+        <button class="btn btn-primary" disabled="@Busy" @onclick="Recover">@(Busy?"Consultando ARCA…":"Recuperar factura pendiente")</button>
+    }
+    else if(sale.FiscalStatus == FiscalService.Authorized){<button class="btn btn-primary" @onclick="Print">Imprimir factura / guardar PDF</button>}
+    else if(!sale.Cancelled){
+        <p class="alert @(Options.Production?"alert-warning":"alert-info")">@(Options.Production?"PRODUCCIÓN: al emitir se solicitará un CAE con validez fiscal.":"HOMOLOGACIÓN: el comprobante de prueba no tiene validez fiscal.")</p>
+        @if(!Options.Enabled){<p>Facturación deshabilitada. Seguí docs/ARCA.md para configurar el certificado y el punto de venta.</p>}
+        <p>Alcance: venta de productos en pesos, emisor monotributista. Identificamos a todos los compradores con DNI o CUIT.</p>
+        <div class="form-grid">
+        <label>Nombre / razón social del comprador<input @bind="name" maxlength="200" /></label>
+        <label>Domicilio del comprador<input @bind="address" maxlength="300" /></label>
+        <label>Documento<select @bind="documentType"><option value="96">DNI</option><option value="80">CUIT</option></select></label>
+        <label>Número de documento<input @bind="document" inputmode="numeric" /></label>
+        <label>Condición frente al IVA<select @bind="vat"><option value="5">Consumidor Final</option><option value="6">Responsable Monotributo</option><option value="1">IVA Responsable Inscripto</option><option value="4">IVA Sujeto Exento</option></select></label>
+        </div>
+        <button class="btn btn-primary" disabled="@(Busy || !Options.Enabled)" @onclick="Issue">@(Busy?"Solicitando autorización…":Options.Production?"Emitir factura C en producción":"Emitir prueba de factura C")</button>
+    }
+    else{<p>Las ventas anuladas no se pueden facturar.</p>}
+    </section>
+}
+</div>
+@if(sale?.FiscalStatus == FiscalService.Authorized && snapshot is not null){
+    <section class="receipt @(paper=="80mm"?"thermal":"")">
+    @if(!snapshot.Production){<h2>HOMOLOGACIÓN · SIN VALIDEZ FISCAL</h2>}
+    <h1>@snapshot.LegalName</h1><p>@snapshot.Address<br/>CUIT: @snapshot.Cuit<br/>Responsable Monotributo<br/>Ingresos Brutos: @snapshot.GrossIncome<br/>Inicio de actividades: @snapshot.ActivityStart</p>
+    <h2>C · FACTURA · CÓD. 011</h2><p>ORIGINAL<br/>N.º @snapshot.Point.ToString("D5")-@snapshot.Number.ToString("D8")<br/>Fecha: @DateOnly.ParseExact(snapshot.Date,"yyyyMMdd",System.Globalization.CultureInfo.InvariantCulture).ToString("dd/MM/yyyy")</p>
+    <p>Receptor: @snapshot.Receiver.Name<br/>Domicilio: @snapshot.Receiver.Address<br/>@(snapshot.Receiver.DocumentType==80?"CUIT":"DNI"): @snapshot.Receiver.DocumentNumber<br/>@FiscalService.VatName(snapshot.Receiver.VatCondition)</p>
+    <table class="table"><thead><tr><th>Descripción</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>@foreach(var line in sale.Lines){<tr><td>@line.Name</td><td>@line.Quantity.ToString(line.Unit=="Metro"?"N3":"N0") @line.Unit</td><td>@line.Price.ToString("C")</td><td>@line.Subtotal.ToString("C")</td></tr>}</tbody></table>
+    <p>Subtotal: @sale.Subtotal.ToString("C")<br/>Descuento: @sale.Discount.ToString("C")<br/>Moneda: pesos argentinos · Cotización: 1</p><h2>Total: @snapshot.Total.ToString("C")</h2>
+    <p>Condición de venta: contado · Medio de pago: @sale.Method</p>
+    <img src="@FiscalService.QrImage(sale)" alt="QR de consulta del comprobante en ARCA" style="width:150px;max-width:100%;image-rendering:pixelated"/>
+    <p>CAE: <strong>@sale.Cae</strong><br/>Vencimiento del CAE: @sale.CaeExpiry?.ToString("dd/MM/yyyy")</p>
+    </section>
+}
+@code {
+    [Parameter] public long Id { get; set; }
+    Sale? sale; FiscalSnapshot? snapshot; string name="",address="",document="",paper="A4"; int documentType=96,vat=5;
+    protected override Task OnParametersSetAsync()=>Run(Load);
+    async Task Load()
+    {
+        await Actor.Require(); await using var db=await Factory.CreateDbContextAsync();
+        sale=await db.Sales.AsNoTracking().Include(x=>x.Lines).SingleOrDefaultAsync(x=>x.Id==Id) ?? throw new InvalidOperationException("Venta inexistente.");
+        paper=(await db.Settings.AsNoTracking().SingleAsync()).Paper;
+        snapshot=sale.FiscalCustomerData is null ? null : FiscalService.Snapshot(sale);
+        if(snapshot is not null){name=snapshot.Receiver.Name;address=snapshot.Receiver.Address;document=snapshot.Receiver.DocumentNumber.ToString(System.Globalization.CultureInfo.InvariantCulture);documentType=snapshot.Receiver.DocumentType;vat=snapshot.Receiver.VatCondition;}
+        else if(sale.CustomerId is not null){var customer=await db.Customers.AsNoTracking().SingleAsync(x=>x.Id==sale.CustomerId);name=customer.Name;address=customer.Address??"";document=customer.Cuit??customer.Document??"";documentType=customer.Cuit is null?96:80;}
+    }
+    Task Issue()=>Run(async()=>{
+        if(!long.TryParse(document.Replace("-","").Replace(".","").Trim(),out var number)) throw new InvalidOperationException("Ingresá un número de documento válido.");
+        try{await Fiscal.Issue(Id,new(name.Trim(),address.Trim(),documentType,number,vat));Notice="Factura autorizada. Ya podés imprimirla.";}
+        finally{await Load();}
+    });
+    Task Recover()=>Run(async()=>{try{await Fiscal.Recover(Id);Notice="Factura recuperada y autorizada.";}finally{await Load();}});
+    async Task Print()=>await JS.InvokeVoidAsync("rosita.print");
+}

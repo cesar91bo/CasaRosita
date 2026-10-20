@@ -1,0 +1,29 @@
+@page "/ingresar"
+@page "/primer-inicio"
+@attribute [ExcludeFromInteractiveRouting]
+@inject NavigationManager Nav
+<PageTitle>Ingresar · Casa Rosita</PageTitle>
+<div class="auth-card panel">
+    <p class="eyebrow">BIENVENIDA A TU NEGOCIO</p><h1>Casa Rosita</h1>
+    @if(Nav.Uri.Contains("primer-inicio"))
+    {
+        <p>Creá la cuenta de la dueña. El código de instalación está en el archivo protegido <strong>primer-inicio.key</strong> de la carpeta de datos.</p>
+        <form method="post" action="/crear-administrador" data-enhance="false"><AntiforgeryToken/>
+            <label>Código de instalación<input name="codigo" required autocomplete="off" /></label>
+            <label>Usuario<input name="usuario" required autocomplete="username" /></label>
+            <label>Contraseña<input name="clave" type="password" minlength="10" required autocomplete="new-password" /></label>
+            <small>Al menos 10 caracteres con mayúsculas, minúsculas y números.</small><button class="btn btn-primary">Crear administrador</button>
+        </form>
+    }
+    else
+    {
+        <p>Ingresá para comenzar a trabajar.</p>
+        <form method="post" action="/sesion" data-enhance="false"><AntiforgeryToken/>
+            <label>Usuario<input name="usuario" required autocomplete="username" autofocus /></label>
+            <label>Contraseña<input name="clave" type="password" required autocomplete="current-password" /></label>
+            <button class="btn btn-primary">Ingresar</button>
+        </form><a href="/primer-inicio" data-enhance-nav="false">Primera instalación</a>
+    }
+    @if(Nav.Uri.Contains("error=")){<p role="alert" class="alert alert-danger">No se pudo completar. Revisá los datos. Si hubo varios intentos de ingreso, esperá 10 minutos.</p>}
+    @if(Nav.Uri.Contains("creado=")){<p class="alert alert-success">Cuenta creada. Ya podés ingresar.</p>}
+</div>

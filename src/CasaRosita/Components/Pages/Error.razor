@@ -1,0 +1,28 @@
+@page "/Error"
+@using System.Diagnostics
+
+<PageTitle>Error</PageTitle>
+
+<h1 class="text-danger">No se pudo completar la operación</h1>
+<p>Volvé a abrir Casa Rosita. Si estabas cobrando, consultá el estado de la operación antes de repetir el cobro.</p>
+<p>Si el problema continúa, pedí asistencia indicando el código de diagnóstico.</p>
+
+@if (ShowRequestId)
+{
+    <p>
+        <strong>Código de diagnóstico:</strong> <code>@RequestId</code>
+    </p>
+}
+
+<a class="btn btn-primary" href="/venta">Volver a Casa Rosita</a>
+
+@code{
+    [CascadingParameter]
+    private HttpContext? HttpContext { get; set; }
+
+    private string? RequestId { get; set; }
+    private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
+
+    protected override void OnInitialized() =>
+        RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+}

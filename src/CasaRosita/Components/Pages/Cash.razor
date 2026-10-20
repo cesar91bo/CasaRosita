@@ -1,0 +1,25 @@
+@page "/caja"
+@attribute [Authorize]
+@inherits StorePage
+@inject Commerce Commerce
+<PageTitle>Caja · Casa Rosita</PageTitle>
+<div class="title-row"><div><p class="eyebrow">CAJA DIARIA</p><h1>El dinero, en orden</h1><p class="muted">Una caja compartida para todo el negocio.</p></div><span class="pill">@(cash is null?"Caja cerrada":"Caja abierta")</span></div>
+<Feedback Error="@Error" Notice="@Notice"/>
+@if(cash is null){<section class="panel"><h2>Abrir caja</h2><label>Saldo inicial en efectivo<input type="number" step="0.01" min="0" @bind="initial" @bind:event="oninput" /></label><button class="btn btn-primary" @onclick="Open" disabled="@Busy">Abrir caja</button></section>}
+else{
+<div class="metrics"><div class="panel"><small>Saldo inicial</small><strong>@cash.Initial.ToString("C")</strong></div><div class="panel"><small>Efectivo esperado</small><strong>@expected.ToString("C")</strong></div><div class="panel"><small>Pagos electrónicos netos</small><strong>@electronic.ToString("C")</strong></div></div>
+<div class="two-columns"><section class="panel"><h2>Ingreso / egreso de efectivo</h2><label>Importe<input type="number" step="0.01" @bind="amount" @bind:event="oninput" /></label><small>Para un egreso escribí un importe negativo.</small><label>Motivo<input @bind="reason" @bind:event="oninput" /></label><button class="btn btn-primary" @onclick="Manual" disabled="@Busy">Registrar movimiento</button></section>
+<section class="panel"><h2>Cerrar caja</h2><p>Contá el efectivo físico del cajón. Los pagos electrónicos no se incluyen.</p><label>Efectivo contado<input type="number" step="0.01" min="0" @bind="counted" @bind:event="oninput" /></label><p>Diferencia prevista: <strong>@((counted-expected).ToString("C"))</strong></p><label class="check"><input type="checkbox" @bind="confirmClose"/> Revisé el efectivo y quiero cerrar la caja</label><button class="btn btn-primary" @onclick="Close" disabled="@(Busy || !confirmClose)">Confirmar cierre de caja</button></section></div>
+<section class="panel"><h2>Movimientos de la caja abierta</h2><table class="table"><thead><tr><th>Fecha</th><th>Motivo</th><th>Medio</th><th>Importe</th></tr></thead><tbody>@foreach(var m in movements){<tr><td>@m.Created.ToString("g")</td><td>@m.Reason</td><td>@m.Method</td><td>@m.Amount.ToString("C")</td></tr>}</tbody></table></section>}
+<section class="panel"><h2>Cierres anteriores</h2><table class="table"><thead><tr><th>Caja</th><th>Apertura</th><th>Cierre</th><th>Esperado</th><th>Contado</th><th>Diferencia</th><th></th></tr></thead><tbody>@foreach(var c in history){<tr><td>#@c.Id</td><td>@c.Opened.ToString("g")</td><td>@c.Closed?.ToString("g")</td><td>@c.Expected?.ToString("C")</td><td>@c.Counted?.ToString("C")</td><td>@c.Difference?.ToString("C")</td><td><button class="btn btn-light" @onclick="()=>Past(c.Id)">Movimientos</button></td></tr>}</tbody></table></section>
+@if(past is not null){<section class="panel"><h2>Movimientos del cierre consultado</h2><table class="table"><tbody>@foreach(var m in past){<tr><td>@m.Created.ToString("g")</td><td>@m.Reason</td><td>@m.Method</td><td>@m.Amount.ToString("C")</td></tr>}</tbody></table></section>}
+@code{
+    CashSession? cash; List<CashSession> history=[]; List<CashMovement> movements=[]; List<CashMovement>? past;
+    decimal initial,amount,counted,expected,electronic; string reason="";bool confirmClose;
+    protected override async Task OnInitializedAsync()=>await Run(Load);
+    async Task Load(){await Actor.Require();await using var db=await Factory.CreateDbContextAsync();cash=await db.CashSessions.AsNoTracking().SingleOrDefaultAsync(x=>x.Closed==null);history=await db.CashSessions.AsNoTracking().Where(x=>x.Closed!=null).OrderByDescending(x=>x.Id).Take(100).ToListAsync();movements=cash is null?[]:await db.CashMovements.Where(x=>x.CashSessionId==cash.Id).OrderByDescending(x=>x.Id).ToListAsync();expected=(cash?.Initial??0)+movements.Where(x=>x.Method==PaymentMethod.Efectivo).Sum(x=>x.Amount);electronic=movements.Where(x=>x.Method!=PaymentMethod.Efectivo).Sum(x=>x.Amount);}
+    Task Open()=>Run(async()=>{await Commerce.OpenCash(initial);await Load();});
+    Task Manual()=>Run(async()=>{await Commerce.ManualCash(amount,reason);amount=0;reason="";await Load();Notice="Movimiento registrado.";});
+    Task Close()=>Run(async()=>{await Commerce.CloseCash(counted);confirmClose=false;await Load();Notice="Caja cerrada. El cierre quedó guardado.";});
+    Task Past(long id)=>Run(async()=>{await Actor.Require();await using var db=await Factory.CreateDbContextAsync();past=await db.CashMovements.Where(x=>x.CashSessionId==id).OrderBy(x=>x.Id).ToListAsync();});
+}

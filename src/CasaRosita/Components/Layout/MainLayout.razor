@@ -1,0 +1,21 @@
+﻿@inherits LayoutComponentBase
+
+<div class="shell">
+    <aside class="rail no-print">
+        <a class="brand" href="/">Casa Rosita<span>Tu negocio, cerca.</span></a>
+        <AuthorizeView><Authorized>
+            <nav aria-label="Menú principal">
+                <NavLink href="/" Match="NavLinkMatch.All">⌂ Inicio</NavLink>
+                <NavLink href="/venta">＋ Nueva venta</NavLink>
+                <NavLink href="/ventas">▤ Ventas</NavLink>
+                <NavLink href="/productos">▦ Productos</NavLink>
+                <NavLink href="/caja">▣ Caja</NavLink>
+                <AuthorizeView Roles="Administrador" Context="admin"><NavLink href="/informes">↗ Informes</NavLink><NavLink href="/clientes">♧ Clientes</NavLink><NavLink href="/configuracion">⚙ Configuración</NavLink></AuthorizeView>
+            </nav>
+            <div class="rail-bottom"><span>● Todo en esta computadora</span><small>Casa Rosita · v0.1.0</small>
+            <form action="/salir" method="post" data-enhance="false"><AntiforgeryToken/><button class="logout">Cerrar sesión de @context.User.Identity?.Name</button></form></div>
+        </Authorized></AuthorizeView>
+    </aside>
+    <main class="workspace"><header class="no-print"><span>MERCERÍA · TELAS · KIOSCO · INDUMENTARIA</span><span>@DateTime.Today.ToString("dddd d 'de' MMMM")</span></header><article>@Body</article></main>
+</div>
+<div id="blazor-error-ui" data-nosnippet>Se interrumpió la sesión. <a href="" class="reload">Volver a abrir</a>. Los cobros pendientes se consultan antes de repetirlos.</div>

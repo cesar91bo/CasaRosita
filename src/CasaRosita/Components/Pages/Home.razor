@@ -1,0 +1,17 @@
+@page "/"
+
+@attribute [Authorize]
+@inherits StorePage
+<PageTitle>Inicio · Casa Rosita</PageTitle>
+<div class="title-row"><div><p class="eyebrow">UN NUEVO DÍA EN CASA ROSITA</p><h1>Todo listo para atender</h1><p class="muted">Las cuentas claras, el negocio en orden.</p></div><a class="btn btn-primary" href="/venta">＋ Nueva venta</a></div>
+<Feedback Error="@Error"/>
+<div class="metrics"><div class="panel"><small>Total vendido hoy</small><strong>@total.ToString("C")</strong></div><div class="panel"><small>Operaciones del día</small><strong>@count</strong></div><div class="panel"><small>Caja actual</small><strong>@(cash is null ? "Cerrada" : "Abierta")</strong><a href="/caja">Ir a caja →</a></div></div>
+<section class="panel"><h2>Para reponer</h2><p class="muted">Productos activos que llegaron al stock mínimo.</p><table class="table"><thead><tr><th>Producto</th><th>Código</th><th>Disponible</th><th>Mínimo</th></tr></thead><tbody>@foreach(var p in low){<tr><td>@p.Name</td><td>@p.Code</td><td>@p.Stock.ToString("N3") @p.Unit</td><td>@p.Minimum.ToString("N3")</td></tr>}</tbody></table>@if(low.Count==0){<p>No hay productos para reponer.</p>}</section>
+@code {
+    decimal total; int count; CashSession? cash; List<Product> low=[];
+    protected override async Task OnInitializedAsync()=>await Run(async()=>{
+        await Actor.Require(); await using var db=await Factory.CreateDbContextAsync(); var start=new DateTimeOffset(DateTime.Today); var end=start.AddDays(1);
+        var sales=await db.Sales.Where(x=>x.Created>=start && x.Created<end && !x.Cancelled).ToListAsync(); total=sales.Sum(x=>x.Total); count=sales.Count;
+        cash=await db.CashSessions.SingleOrDefaultAsync(x=>x.Closed==null); low=await db.Products.Where(x=>x.Active && x.TrackStock && x.Stock<=x.Minimum).OrderBy(x=>x.Name).ToListAsync();
+    });
+}

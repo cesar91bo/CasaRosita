@@ -1,0 +1,3 @@
+@if(!string.IsNullOrEmpty(Error)){<div class="alert alert-danger" role="alert">@Error</div>}
+@if(!string.IsNullOrEmpty(Notice)){<div class="alert alert-success" role="status">@Notice</div>}
+@code { [Parameter] public string? Error {get;set;} [Parameter] public string? Notice {get;set;} }

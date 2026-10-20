@@ -1,0 +1,17 @@
+@page "/clientes"
+@attribute [Authorize(Roles="Administrador")]
+@inherits StorePage
+@inject Catalog Catalog
+<PageTitle>Clientes · Casa Rosita</PageTitle>
+<div class="title-row"><div><p class="eyebrow">AGENDA OPCIONAL</p><h1>Clientes</h1><p class="muted">No hace falta identificar al cliente para vender en el mostrador.</p></div><button class="btn btn-primary" @onclick="()=>edit=new()">＋ Nuevo cliente</button></div>
+<Feedback Error="@Error" Notice="@Notice"/>
+@if(edit is not null){<section class="panel"><h2>Datos del cliente</h2><div class="form-grid"><label>Nombre<input @bind="edit.Name" @bind:event="oninput" /></label><label>Documento<input @bind="edit.Document" @bind:event="oninput" /></label><label>CUIT<input @bind="edit.Cuit" @bind:event="oninput" /></label><label>Teléfono<input @bind="edit.Phone" @bind:event="oninput" /></label><label>Domicilio<input @bind="edit.Address" @bind:event="oninput" /></label><label>Correo<input type="email" @bind="edit.Email" @bind:event="oninput" /></label><label class="wide">Observaciones<textarea @bind="edit.Notes"></textarea></label><label class="check"><input type="checkbox" @bind="edit.Active"/> Activo</label></div><button class="btn btn-primary" @onclick="Save" disabled="@Busy">Guardar cliente</button><button class="btn btn-light" @onclick="()=>edit=null">Cancelar</button></section>}
+<form class="panel search-row" @onsubmit="Load" @onsubmit:preventDefault><label class="grow">Buscar por nombre o documento<input @bind="query" @bind:event="oninput" /></label><button class="btn btn-primary">Buscar</button></form>
+<section class="panel"><table class="table"><thead><tr><th>Nombre</th><th>Documento / CUIT</th><th>Teléfono</th><th>Estado</th><th></th></tr></thead><tbody>@foreach(var c in customers){<tr><td>@c.Name</td><td>@c.Document @c.Cuit</td><td>@c.Phone</td><td>@(c.Active?"Activo":"Inactivo")</td><td><button class="btn btn-light" @onclick="()=>edit=c">Editar / dar de baja</button></td></tr>}</tbody></table></section>
+@code{
+    List<Customer> customers=[];Customer? edit;string query="";
+    protected override async Task OnInitializedAsync()=>await Load();
+    Task Load()=>Run(LoadCore);
+    async Task LoadCore(){await Actor.Require(true);await using var db=await Factory.CreateDbContextAsync();customers=await db.Customers.AsNoTracking().Where(x=>x.Name.Contains(query)||(x.Document!=null&&x.Document.Contains(query))).OrderBy(x=>x.Name).Take(200).ToListAsync();}
+    Task Save()=>Run(async()=>{await Catalog.SaveCustomer(edit!);edit=null;await LoadCore();Notice="Cliente guardado.";});
+}

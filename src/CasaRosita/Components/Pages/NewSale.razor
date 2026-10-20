@@ -1,0 +1,60 @@
+@page "/venta"
+@attribute [Authorize]
+@inherits StorePage
+@inject Commerce Commerce
+@inject IJSRuntime JS
+<PageTitle>Nueva venta · Casa Rosita</PageTitle>
+<div class="title-row"><div><p class="eyebrow">MOSTRADOR</p><h1>Nueva venta</h1><p class="muted">Buscá, agregá y cobrá. Así de simple.</p></div><span class="pill">Comprobante interno · No fiscal</span></div>
+<Feedback Error="@Error" Notice="@Notice"/>
+@if(pending)
+{
+    <section class="panel"><h2>Hay un cobro pendiente de consultar</h2><p>La conexión pudo interrumpirse. Consultá si quedó guardado antes de continuar.</p><button class="btn btn-primary" @onclick="Resolve" disabled="@Busy">Consultar estado del cobro</button>
+    @if(knownAbsent){<p>No hay una venta confirmada con esa identificación. Podés volver a intentar el mismo cobro si los artículos siguen en pantalla.</p><button class="btn btn-outline-secondary" @onclick="Release" disabled="@Busy">Continuar con la misma operación</button>}</section>
+}
+else if(completed is not null)
+{
+    <section class="panel success"><h2>Venta N.º @completed confirmada</h2><p>El pago, la caja y el stock quedaron guardados.</p><a class="btn btn-primary" href="@($"/comprobante/{completed}")" target="_blank">Imprimir comprobante</a><button class="btn btn-outline-secondary" @onclick="New">Comenzar otra venta</button></section>
+}
+else
+{
+<div class="sale-grid"><section>
+    <form class="search-row panel" @onsubmit="Search" @onsubmit:preventDefault><label class="grow">Buscar un producto<input @bind="query" @bind:event="oninput" placeholder="Nombre, código o código de barras" autofocus disabled="@Busy" /></label><button class="btn btn-primary" disabled="@Busy">Buscar</button></form>
+    <div class="product-results">@foreach(var p in results){<button class="product-tile" @onclick="()=>Add(p)" disabled="@Busy"><span class="muted">@p.Category.Name · @p.Code</span><strong>@p.Name @p.Size @p.Color</strong><span>@p.Price.ToString("C") <small>/ @p.Unit.ToLower()</small></span><small>@(p.TrackStock ? $"Disponible: {p.Stock:N3}" : "Sin control de stock")</small></button>}</div>
+    @if(results.Count==0){<div class="panel empty">Buscá los productos por nombre o escaneá su código de barras.</div>}
+    <section class="panel cart"><h2>Artículos de esta venta <span class="muted">(@cart.Count)</span></h2>
+    @if(cart.Count==0){<p class="empty">La venta está vacía. Agregá el primer producto.</p>}
+    else{<table class="table"><thead><tr><th>Producto</th><th>Cantidad</th><th>Precio</th><th>Subtotal</th><th></th></tr></thead><tbody>@foreach(var row in cart){<tr @key="row.Product.Id"><td><strong>@row.Product.Name</strong><small>@row.Product.Code · @row.Product.Unit @row.Product.Size @row.Product.Color</small></td><td><input class="qty" type="number" min="0.001" step="@(row.Product.Unit=="Metro"?"0.001":"1")" @bind="row.Quantity" @bind:event="oninput" disabled="@Busy" /></td><td>@row.Product.Price.ToString("C")</td><td>@Money.Round(row.Quantity*row.Product.Price).ToString("C")</td><td><button class="btn btn-light" title="Quitar artículo" @onclick="()=>cart.Remove(row)" disabled="@Busy">×</button></td></tr>}</tbody></table>}
+    </section>
+</section><aside class="panel checkout"><p class="eyebrow">RESUMEN</p><h2>Cobrar venta</h2><div class="sum-line"><span>Subtotal</span><strong>@Subtotal.ToString("C")</strong></div>
+    @if(admin){<details class="checkout-extra"><summary>Descuento autorizado @(discount>0?discount.ToString("C"):"")</summary><label>Importe del descuento ($)<input type="number" step="0.01" min="0" @bind="discount" @bind:event="oninput" disabled="@Busy" /></label></details>}
+    <label>Medio de pago<select @bind="method" disabled="@Busy">@foreach(var m in Enum.GetValues<PaymentMethod>()){<option value="@m">@(m==PaymentMethod.MercadoPago?"Mercado Pago":m)</option>}</select></label>
+    <details class="checkout-extra"><summary>Cliente @(customerId is null?"(opcional)":"asignado")</summary><label>Cliente<select @bind="customerId" disabled="@Busy"><option value="">Consumidor de mostrador</option>@foreach(var c in customers){<option value="@c.Id">@c.Name</option>}</select></label></details>
+    <div class="total"><small>TOTAL A COBRAR</small><strong>@((Subtotal-discount).ToString("C"))</strong></div>
+    <button class="btn btn-primary confirm" @onclick="Confirm" disabled="@(Busy || !ready || cart.Count==0)">@(Busy?"Guardando venta…":"Confirmar y cobrar")</button><small>Confirmá después de recibir el pago. Los medios electrónicos se registran manualmente.</small>
+</aside></div>
+}
+@code {
+    string query=""; List<Product> results=[]; List<Row> cart=[]; List<Customer> customers=[];
+    Guid operation=Guid.NewGuid(); bool pending,knownAbsent,ready,admin; long? completed; decimal discount; PaymentMethod method; int? customerId;
+    decimal Subtotal=>cart.Sum(x=>Money.Round(x.Quantity*x.Product.Price));
+    sealed class Row(Product p){public Product Product=p; public decimal Quantity {get;set;}=1;}
+    protected override async Task OnInitializedAsync()=>await Run(async()=>{await Actor.Require(); admin=await Actor.IsAdmin(); await using var db=await Factory.CreateDbContextAsync(); customers=await db.Customers.Where(x=>x.Active).OrderBy(x=>x.Name).ToListAsync();});
+    protected override async Task OnAfterRenderAsync(bool first)
+    {
+        if(!first)return;
+        await Run(async()=>{var saved=await JS.InvokeAsync<string?>("rosita.pending"); if(Guid.TryParse(saved,out var id)){operation=id; pending=true; await ResolveCore();} ready=true;}); StateHasChanged();
+    }
+    Task Search()=>Run(async()=>{await Actor.Require(); await using var db=await Factory.CreateDbContextAsync(); var q=query.Trim(); results=await db.Products.AsNoTracking().Include(x=>x.Category).Where(x=>x.Active && (x.Name.Contains(q)||x.Code.Contains(q)||(x.Barcode!=null && x.Barcode==q))).OrderBy(x=>x.Name).Take(24).ToListAsync(); var exact=results.FirstOrDefault(x=>x.Barcode==q || x.Code==q); if(exact is not null && q.Length>0){Add(exact);query="";}});
+    void Add(Product p){var row=cart.FirstOrDefault(x=>x.Product.Id==p.Id); if(row is null)cart.Add(new Row(p));else row.Quantity++;}
+    Task Confirm()=>Run(async()=>{
+        foreach(var row in cart)Money.Quantity(row.Quantity,row.Product.Unit);
+        // Persist BEFORE calling SQL. Never clear on an ambiguous exception.
+        await JS.InvokeVoidAsync("rosita.remember",operation.ToString()); pending=true; knownAbsent=false;
+        try { completed=await Commerce.Confirm(new Checkout(operation,cart.Select(x=>new CartItem(x.Product.Id,x.Quantity,x.Product.Price)).ToList(),discount,method,customerId)); await JS.InvokeVoidAsync("rosita.clear"); pending=false; }
+        catch { throw; }
+    });
+    Task Resolve()=>Run(ResolveCore);
+    async Task ResolveCore(){var sale=await Commerce.Operation(operation); if(sale is null){knownAbsent=true;}else{completed=sale.Id; await JS.InvokeVoidAsync("rosita.clear"); pending=false;}}
+    void Release(){pending=false;knownAbsent=false;}
+    void New(){completed=null;cart.Clear();operation=Guid.NewGuid();discount=0;customerId=null;}
+}

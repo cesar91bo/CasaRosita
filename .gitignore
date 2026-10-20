@@ -1,0 +1,16 @@
+**/bin/
+**/obj/
+.vs/
+artifacts/
+.local/
+*.bak
+*.log
+TestResults/
+*.key
+*.pfx
+*.p12
+*.crt
+*.csr
+*.ticket
+local.json
+*password*.txt

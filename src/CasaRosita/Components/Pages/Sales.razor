@@ -1,0 +1,23 @@
+@page "/ventas"
+@attribute [Authorize]
+@inherits StorePage
+@inject Commerce Commerce
+<PageTitle>Ventas · Casa Rosita</PageTitle>
+<div class="title-row"><div><p class="eyebrow">HISTORIAL</p><h1>Ventas realizadas</h1><p class="muted">Consultá cada operación y volvé a imprimir su comprobante.</p></div><a class="btn btn-primary" href="/venta">＋ Nueva venta</a></div>
+<Feedback Error="@Error" Notice="@Notice"/>
+<form class="panel search-row" @onsubmit="Load" @onsubmit:preventDefault><label>Número<input type="number" @bind="number" @bind:event="oninput" /></label><label>Desde<input type="date" @bind="from" @bind:event="oninput" /></label><label>Hasta<input type="date" @bind="to" @bind:event="oninput" /></label><button class="btn btn-primary">Consultar</button></form>
+<section class="panel"><table class="table"><thead><tr><th>Número</th><th>Fecha</th><th>Medio</th><th>Total</th><th>Estado</th><th></th></tr></thead><tbody>@foreach(var s in sales){<tr><td>#@s.Id</td><td>@s.Created.ToString("g")</td><td>@s.Method</td><td>@s.Total.ToString("C")</td><td>@(s.Cancelled?"Anulada":"Confirmada")</td><td><button class="btn btn-light" @onclick="()=>Details(s.Id)">Ver detalle</button><a class="btn btn-light" href="@($"/comprobante/{s.Id}")" target="_blank">Comprobante</a></td></tr>}</tbody></table><small>Hasta 300 operaciones. Refiná las fechas para consultar más.</small></section>
+@if(detail is not null){<section class="panel"><h2>Venta N.º @detail.Id</h2><table class="table"><thead><tr><th>Artículo</th><th>Cantidad</th><th>Precio histórico</th><th>Subtotal</th></tr></thead><tbody>@foreach(var l in detail.Lines){<tr><td>@l.Name</td><td>@l.Quantity.ToString("N3") @l.Unit</td><td>@l.Price.ToString("C")</td><td>@l.Subtotal.ToString("C")</td></tr>}</tbody></table><p>Descuento: @detail.Discount.ToString("C") · Total: <strong>@detail.Total.ToString("C")</strong></p>
+    <p>Estado fiscal: <strong>@detail.FiscalStatus</strong> · <a class="btn btn-primary" href="@($"/factura/{detail.Id}")">Factura C / consultar estado</a></p>
+    @if(detail.Cancelled){<p class="alert alert-warning">Anulada el @detail.CancelledAt?.ToString("g") por @detail.CancelledBy. Motivo: @detail.CancellationReason</p>}
+    else if(detail.FiscalStatus is FiscalService.Pending or FiscalService.Authorized){<p class="alert alert-warning">La factura no admite anulación interna. Si está pendiente, recuperá su estado. Para revertir una factura autorizada se necesita nota de crédito fiscal.</p>}
+    else if(admin){<label>Motivo de anulación<input @bind="reason" @bind:event="oninput" placeholder="Explicá por qué se devuelve esta venta" /></label><p>Al anular se reintegra el stock y se registra la devolución en la caja abierta, con el medio de pago original.</p><button class="btn btn-danger" @onclick="Cancel" disabled="@Busy">Anular venta y registrar devolución</button>}
+</section>}
+@code{
+    List<Sale> sales=[]; Sale? detail; DateTime from=DateTime.Today,to=DateTime.Today; long? number; bool admin; string reason="";
+    protected override async Task OnInitializedAsync()=>await Run(async()=>{admin=await Actor.IsAdmin();await LoadCore();});
+    Task Load()=>Run(LoadCore);
+    async Task LoadCore(){await Actor.Require();if(to<from)throw new InvalidOperationException("Revisá las fechas.");await using var db=await Factory.CreateDbContextAsync();var start=new DateTimeOffset(from.Date);var end=new DateTimeOffset(to.Date.AddDays(1));sales=await db.Sales.AsNoTracking().Where(x=>(number!=null?x.Id==number:x.Created>=start&&x.Created<end)).OrderByDescending(x=>x.Id).Take(300).ToListAsync();}
+    Task Details(long id)=>Run(async()=>{await Actor.Require();await using var db=await Factory.CreateDbContextAsync();detail=await db.Sales.AsNoTracking().Include(x=>x.Lines).SingleAsync(x=>x.Id==id);reason="";});
+    Task Cancel()=>Run(async()=>{await Commerce.Cancel(detail!.Id,reason);detail=null;await LoadCore();Notice="Venta anulada. La devolución y el stock quedaron registrados.";});
+}

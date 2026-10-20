@@ -1,0 +1,17 @@
+@page "/informes"
+@attribute [Authorize(Roles="Administrador")]
+@inherits StorePage
+<PageTitle>Informes · Casa Rosita</PageTitle>
+<div class="title-row"><div><p class="eyebrow">EL NEGOCIO EN NÚMEROS</p><h1>Informes</h1><p class="muted">Ventas confirmadas, sin incluir las anuladas.</p></div></div>
+<Feedback Error="@Error"/>
+<form class="panel search-row" @onsubmit="Load" @onsubmit:preventDefault><label>Desde<input type="date" @bind="from" @bind:event="oninput" /></label><label>Hasta<input type="date" @bind="to" @bind:event="oninput" /></label><button class="btn btn-primary">Consultar</button><a class="btn btn-light" href="@Csv("ventas")">Exportar ventas CSV</a><a class="btn btn-light" href="@Csv("stock")">Exportar stock CSV</a><a class="btn btn-light" href="@Csv("caja")">Exportar caja CSV</a></form>
+<div class="metrics"><div class="panel"><small>Total vendido</small><strong>@sales.Sum(x=>x.Total).ToString("C")</strong></div><div class="panel"><small>Operaciones</small><strong>@sales.Count</strong></div><div class="panel"><small>Descuentos</small><strong>@sales.Sum(x=>x.Discount).ToString("C")</strong></div></div>
+<div class="two-columns"><section class="panel"><h2>Por medio de pago</h2><table class="table"><tbody>@foreach(var g in sales.GroupBy(x=>x.Method)){<tr><td>@g.Key</td><td>@g.Sum(x=>x.Total).ToString("C")</td></tr>}</tbody></table></section>
+<section class="panel"><h2>Por categoría</h2><small>Importes antes del descuento general de la venta.</small><table class="table"><tbody>@foreach(var g in sales.SelectMany(x=>x.Lines).GroupBy(x=>x.Category)){<tr><td>@g.Key</td><td>@g.Sum(x=>x.Subtotal).ToString("C")</td></tr>}</tbody></table></section></div>
+<section class="panel"><h2>Productos más vendidos</h2><table class="table"><thead><tr><th>Producto</th><th>Cantidad</th><th>Importe antes de descuentos</th></tr></thead><tbody>@foreach(var g in sales.SelectMany(x=>x.Lines).GroupBy(x=>new{x.ProductId,x.Name,x.Unit}).OrderByDescending(g=>g.Sum(x=>x.Subtotal)).Take(30)){<tr><td>@g.Key.Name</td><td>@g.Sum(x=>x.Quantity).ToString("N3") @g.Key.Unit</td><td>@g.Sum(x=>x.Subtotal).ToString("C")</td></tr>}</tbody></table></section>
+@code{
+    DateTime from=DateTime.Today,to=DateTime.Today;List<Sale> sales=[];
+    string Csv(string type)=>$"/informes.csv?type={type}&from={from:yyyy-MM-dd}&to={to:yyyy-MM-dd}";
+    protected override async Task OnInitializedAsync()=>await Load();
+    Task Load()=>Run(async()=>{await Actor.Require(true);if(to<from || (to-from).TotalDays>366)throw new InvalidOperationException("Elegí un período de hasta un año.");await using var db=await Factory.CreateDbContextAsync();var start=new DateTimeOffset(from.Date);var end=new DateTimeOffset(to.Date.AddDays(1));sales=await db.Sales.AsNoTracking().Include(x=>x.Lines).Where(x=>!x.Cancelled&&x.Created>=start&&x.Created<end).ToListAsync();});
+}

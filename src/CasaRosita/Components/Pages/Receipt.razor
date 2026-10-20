@@ -1,0 +1,22 @@
+@page "/comprobante/{Id:long}"
+@attribute [Authorize]
+@inherits StorePage
+@inject IJSRuntime JS
+<PageTitle>Comprobante interno · Casa Rosita</PageTitle>
+<Feedback Error="@Error"/>
+@if(sale is not null && shop is not null){
+<div class="actions no-print"><button class="btn btn-primary" @onclick="Print">Imprimir</button><a class="btn btn-light" href="/ventas">Volver a ventas</a><span>Elegí A4 o papel de 80 mm en el diálogo de impresión.</span></div>
+<div class="no-print"><a class="btn btn-primary" href="@($"/factura/{Id}")">Factura C / estado fiscal</a></div>
+<section class="receipt @(shop.Paper=="80mm"?"thermal":"")">
+    @if(shop.LogoData is not null){<img class="shop-logo" src="@shop.LogoData" alt="Logo del negocio"/>}
+    <h1>@shop.Name</h1><p>@shop.LegalName<br/>CUIT: @shop.Cuit<br/>@shop.Address · @shop.Phone</p>
+    <h2>COMPROBANTE INTERNO</h2><strong>NO VÁLIDO COMO FACTURA · NO FISCAL</strong><p>N.º @sale.Id.ToString("D8") · @sale.Created.ToString("g")</p>
+    @if(sale.Cancelled){<h2>ANULADO</h2><p>@sale.CancellationReason</p>}
+    <table class="table"><thead><tr><th>Descripción</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>@foreach(var l in sale.Lines){<tr><td>@l.Name</td><td>@l.Quantity.ToString(l.Unit=="Metro"?"N3":"N0") @l.Unit</td><td>@l.Price.ToString("C")</td><td>@l.Subtotal.ToString("C")</td></tr>}</tbody></table>
+    <p>Subtotal: @sale.Subtotal.ToString("C")<br/>Descuento: @sale.Discount.ToString("C")</p><h2>Total: @sale.Total.ToString("C")</h2><p>Medio de pago: @sale.Method</p><p>@shop.ReceiptMessage</p>
+</section>}
+@code{
+    [Parameter] public long Id{get;set;} Sale? sale; ShopSettings? shop;
+    async Task Print()=>await JS.InvokeVoidAsync("rosita.print");
+    protected override async Task OnParametersSetAsync()=>await Run(async()=>{await Actor.Require();await using var db=await Factory.CreateDbContextAsync();sale=await db.Sales.AsNoTracking().Include(x=>x.Lines).SingleOrDefaultAsync(x=>x.Id==Id);shop=await db.Settings.AsNoTracking().SingleAsync();if(sale is null)throw new InvalidOperationException("No se encontró esa venta.");});
+}
